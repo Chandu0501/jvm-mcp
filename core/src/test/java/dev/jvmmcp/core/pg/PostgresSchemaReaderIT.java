@@ -15,10 +15,13 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers(disabledWithoutDocker = true)
-class PostgresSchemaReaderTest {
+class PostgresSchemaReaderIT {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(org.testcontainers.utility.DockerImageName.parse("public.ecr.aws/docker/library/postgres:15-alpine").asCompatibleSubstituteFor("postgres"));
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
+        org.testcontainers.utility.DockerImageName.parse(System.getProperty("tc.postgres.image", "postgres:15-alpine"))
+            .asCompatibleSubstituteFor("postgres")
+    );
 
     private static PostgresSchemaReader reader;
 

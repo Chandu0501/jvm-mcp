@@ -28,6 +28,7 @@
         <jqwik.version>1.10.1</jqwik.version>
         <jacoco.version>0.8.15</jacoco.version>
         <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
+        <maven-failsafe-plugin.version>3.6.0</maven-failsafe-plugin.version>
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <pitest.version>1.30.0</pitest.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
@@ -124,6 +125,19 @@
                     <version>${maven-surefire-plugin.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${maven-failsafe-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>${jacoco.version}</version>
@@ -187,7 +201,19 @@
                         <targetTests>
                             <param>dev.jvmmcp.*</param>
                         </targetTests>
+                        <excludedTestClasses>
+                            <param>dev.jvmmcp.core.pg.PostgresSchemaReader*</param>
+                            <param>*IT</param>
+                        </excludedTestClasses>
+                        <excludedClasses>
+                            <param>dev.jvmmcp.core.pg.PostgresSchemaReader</param>
+                        </excludedClasses>
+                        <threads>4</threads>
                         <mutationThreshold>70</mutationThreshold>
+                        <jvmArgs>
+                            <param>-XX:+EnableDynamicAgentLoading</param>
+                            <param>-Djdk.attach.allowAttachSelf=true</param>
+                        </jvmArgs>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -206,6 +232,10 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

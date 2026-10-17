@@ -66,6 +66,7 @@
         <groupId>org.pitest</groupId>
         <artifactId>pitest-maven</artifactId>
         <configuration>
+          <threads>4</threads>
           <mutationThreshold>70</mutationThreshold>
         </configuration>
       </plugin>

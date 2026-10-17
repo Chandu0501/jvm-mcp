@@ -69,6 +69,34 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Cache Docker image for Postgres
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        with:
+          path: /tmp/docker-cache
+          key: docker-postgres-15-alpine-v1
+
+      - name: Preload or Pull Postgres Docker Image
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          mkdir -p /tmp/docker-cache
+          IMAGE="postgres:15-alpine"
+          FALLBACK="public.ecr.aws/docker/library/postgres:15-alpine"
+          ARCHIVE="/tmp/docker-cache/postgres-15-alpine.tar"
+          if [ -f "$ARCHIVE" ]; then
+            echo "Loading cached Docker image from $ARCHIVE..."
+            docker load -i "$ARCHIVE"
+          else
+            echo "Cache miss. Pulling Docker image: $IMAGE..."
+            docker pull "$IMAGE" || docker pull "$FALLBACK"
+            if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+              docker tag "$FALLBACK" "$IMAGE"
+            fi
+            docker save "$IMAGE" -o "$ARCHIVE"
+          fi
+          docker tag "$IMAGE" "$FALLBACK" 2>/dev/null || true
+
       - name: Compile, Test & Verify Monorepo
         shell: bash
         run: ./mvnw clean install -B --fail-fast
