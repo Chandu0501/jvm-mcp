@@ -52,7 +52,9 @@ class PostgresSchemaReaderIT {
             stmt.execute("ANALYZE large_table");
         }
 
-        reader = new PostgresSchemaReader(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        String rawUrl = postgres.getJdbcUrl();
+        String cleanUrl = rawUrl.contains("?") ? rawUrl.substring(0, rawUrl.indexOf('?')) : rawUrl;
+        reader = new PostgresSchemaReader(cleanUrl, postgres.getUsername(), postgres.getPassword());
     }
 
     @AfterAll
