@@ -113,11 +113,16 @@ public class PostgresSchemaReader implements AutoCloseable {
         if (query != null && !query.isBlank()) {
             String lower = query.toLowerCase();
             if (lower.contains("socketfactory") ||
+                lower.contains("socketfactoryarg") ||
                 lower.contains("sslfactory") ||
+                lower.contains("sslfactoryarg") ||
                 lower.contains("sslrootcert") ||
                 lower.contains("sslcert") ||
                 lower.contains("sslkey") ||
                 lower.contains("sslpasswordcallback") ||
+                lower.contains("loggerfile") ||
+                lower.contains("loggerlevel") ||
+                lower.contains("allowencodingchanges") ||
                 lower.contains("options=") ||
                 lower.contains("sslmode=disable")) {
                 throw new IllegalArgumentException("Security Protection: Dangerous JDBC connection parameter detected in URL: " + query);

@@ -61,12 +61,16 @@ public class MemoryCommand implements Callable<Integer> {
                 return 1;
             }
 
-            try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent() 
-                    ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
-                    : JmxConnectionManager.connectLocal();
-                 MemoryMXBeanClient client = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection())) {
+            com.sun.tools.attach.VirtualMachine vm = attachResult.virtualMachine().orElse(null);
+            boolean[] jmxManagerOwnsVm = {false};
+            try {
+                try (JmxConnectionManager jmxManager = vm != null 
+                        ? JmxConnectionManager.connect(vm, pid) 
+                        : JmxConnectionManager.connectLocal();
+                     MemoryMXBeanClient client = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection())) {
+                    jmxManagerOwnsVm[0] = true;
 
-                HeapSummary summary = client.getHeapSummary(pid);
+                    HeapSummary summary = client.getHeapSummary(pid);
 
                 System.out.println("=".repeat(80));
                 System.out.printf(" JVM MEMORY DIAGNOSTICS FOR PID %d%n", pid);
@@ -130,6 +134,14 @@ public class MemoryCommand implements Callable<Integer> {
                 }
                 return 0;
             }
+        } finally {
+            if (vm != null && !jmxManagerOwnsVm[0]) {
+                try {
+                    attachService.detach(vm);
+                } catch (Exception ignored) {
+                }
+            }
+        }
 
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Error querying memory metrics: " + e.getMessage());

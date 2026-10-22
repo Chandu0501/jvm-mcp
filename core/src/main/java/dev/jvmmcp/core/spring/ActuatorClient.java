@@ -4,7 +4,11 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedTrustManager;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,6 +26,8 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
  * Lightweight HTTP client for reading Spring Boot Actuator endpoints (health, metrics, startup, etc.).
@@ -132,7 +138,8 @@ public class ActuatorClient {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(Duration.ofSeconds(5))
-            .header("Accept", "application/json");
+            .header("Accept", "application/json")
+            .header("Accept-Encoding", "gzip, deflate");
         auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
         return builder;
     }
@@ -145,7 +152,8 @@ public class ActuatorClient {
                 }
             });
 
-            HttpResponse.BodySubscriber<String> downstream = HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
+            String encoding = responseInfo.headers().firstValue("Content-Encoding").orElse(null);
+            HttpResponse.BodySubscriber<byte[]> byteSubscriber = HttpResponse.BodySubscribers.ofByteArray();
             
             return new HttpResponse.BodySubscriber<String>() {
                 private long totalReceived = 0;
@@ -154,7 +162,7 @@ public class ActuatorClient {
                 @Override
                 public void onSubscribe(Flow.Subscription subscription) {
                     this.subscription = subscription;
-                    downstream.onSubscribe(subscription);
+                    byteSubscriber.onSubscribe(subscription);
                 }
 
                 @Override
@@ -167,28 +175,59 @@ public class ActuatorClient {
 
                     if (totalReceived > maxBytes) {
                         subscription.cancel();
-                        downstream.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
+                        byteSubscriber.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
                         return;
                     }
-                    downstream.onNext(item);
+                    byteSubscriber.onNext(item);
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    downstream.onError(throwable);
+                    byteSubscriber.onError(throwable);
                 }
 
                 @Override
                 public void onComplete() {
-                    downstream.onComplete();
+                    byteSubscriber.onComplete();
                 }
 
                 @Override
                 public CompletionStage<String> getBody() {
-                    return downstream.getBody();
+                    return byteSubscriber.getBody().thenApply(bytes -> {
+                        try {
+                            return decodeResponseBody(bytes, encoding, maxBytes);
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
                 }
             };
         };
+    }
+
+    private static String decodeResponseBody(byte[] bytes, String encoding, long maxUncompressedBytes) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        InputStream is = new ByteArrayInputStream(bytes);
+        if ("gzip".equalsIgnoreCase(encoding)) {
+            is = new GZIPInputStream(is);
+        } else if ("deflate".equalsIgnoreCase(encoding)) {
+            is = new InflaterInputStream(is);
+        }
+        try (InputStream in = is; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int read;
+            long total = 0;
+            while ((read = in.read(buf)) != -1) {
+                total += read;
+                if (total > maxUncompressedBytes) {
+                    throw new IOException("Decompressed response size exceeded maximum limit of " + maxUncompressedBytes + " bytes");
+                }
+                baos.write(buf, 0, read);
+            }
+            return baos.toString(StandardCharsets.UTF_8);
+        }
     }
 
     /**

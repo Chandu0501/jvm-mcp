@@ -40,6 +40,7 @@ echo "Downloading ${RELEASE_ASSET} from GitHub..."
 if ! curl -fsSL "${DOWNLOAD_URL}" -o "${TMP_DIR}/${RELEASE_ASSET}"; then
     echo "Error: Failed to download ${RELEASE_ASSET} from ${DOWNLOAD_URL}" >&2
     echo "Please verify that a release asset exists for ${OS_NAME}-${ARCH_NAME}." >&2
+    echo "Note: If the release is still building or the asset has not been published yet, check: https://github.com/${REPO}/releases" >&2
     exit 1
 fi
 
@@ -129,6 +130,7 @@ fi
 if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
     echo "Adding ${BIN_DIR} to PATH in shell configuration..."
 
+    MODIFIED_RC=false
     for rc in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
         if [ -f "$rc" ]; then
             if ! grep -q "jvm-mcp" "$rc"; then
@@ -139,8 +141,26 @@ if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
                     echo "# <<< jvm-mcp <<<"
                 } >> "$rc"
             fi
+            MODIFIED_RC=true
         fi
     done
+
+    # If neither ~/.bashrc nor ~/.zshrc existed (e.g. fresh macOS or minimal Linux container)
+    if [ "$MODIFIED_RC" = false ]; then
+        TARGET_RC="${HOME}/.bashrc"
+        if [ "${OS_NAME}" = "macos" ] || [[ "${SHELL:-}" == *"zsh"* ]]; then
+            TARGET_RC="${HOME}/.zshrc"
+        fi
+        touch "$TARGET_RC"
+        {
+            echo ""
+            echo "# >>> jvm-mcp >>>"
+            echo "export PATH=\"${BIN_DIR}:\$PATH\""
+            echo "# <<< jvm-mcp <<<"
+        } >> "$TARGET_RC"
+        echo "Created and configured ${TARGET_RC} with ${BIN_DIR} in PATH"
+    fi
+
     echo "Please restart your terminal or run: source ~/.bashrc (or ~/.zshrc)"
 fi
 

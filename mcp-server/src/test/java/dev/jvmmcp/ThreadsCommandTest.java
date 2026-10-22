@@ -290,6 +290,22 @@ class ThreadsCommandTest {
         assertThat(command).isNotNull();
     }
 
+    @Test
+    @DisplayName("detaches VirtualMachine when JMX connection fails")
+    void shouldDetachWhenJmxConnectFails() throws Exception {
+        long targetPid = 999999L;
+        MemoryCommandTest.StubVirtualMachine mockVm = new MemoryCommandTest.StubVirtualMachine(false);
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+            .thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+
+        int exitCode = command.call();
+        assertThat(exitCode).isEqualTo(1);
+        org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
+    }
+
     /**
      * Extracts the printed dump block of a single thread, from its {@code "name" #id [STATE]} header
      * up to the blank line that terminates the block.

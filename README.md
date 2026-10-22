@@ -74,8 +74,15 @@ The script automatically detects your platform architecture (`linux-amd64`, `lin
 
 ### Homebrew (macOS & Linux)
 
+Install directly using the formula published with each GitHub release:
 ```bash
-brew install oscarbol09/tap/jvm-mcp
+brew install https://github.com/oscarbol09/jvm-mcp/releases/latest/download/jvm-mcp.rb
+```
+
+Or via Homebrew tap repository:
+```bash
+brew tap oscarbol09/tap
+brew install jvm-mcp
 ```
 
 ### Pre-Compiled Standalone Archives

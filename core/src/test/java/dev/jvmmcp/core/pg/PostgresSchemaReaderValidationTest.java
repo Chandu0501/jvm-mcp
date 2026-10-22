@@ -60,7 +60,12 @@ class PostgresSchemaReaderValidationTest {
         "jdbc:postgresql://localhost:5432/db?sslfactory=org.example.EvilFactory",
         "jdbc:postgresql://localhost:5432/db?sslrootcert=/etc/passwd",
         "jdbc:postgresql://localhost:5432/db?options=-c%20statement_timeout=1",
-        "jdbc:postgresql://localhost:5432/db?sslmode=disable"
+        "jdbc:postgresql://localhost:5432/db?sslmode=disable",
+        "jdbc:postgresql://localhost:5432/db?loggerFile=/tmp/evil.log",
+        "jdbc:postgresql://localhost:5432/db?loggerLevel=TRACE",
+        "jdbc:postgresql://localhost:5432/db?socketFactoryArg=something",
+        "jdbc:postgresql://localhost:5432/db?sslfactoryarg=something",
+        "jdbc:postgresql://localhost:5432/db?allowEncodingChanges=true"
     })
     @DisplayName("Dangerous connection property parameters must be rejected")
     void shouldRejectDangerousParameters(String url) {

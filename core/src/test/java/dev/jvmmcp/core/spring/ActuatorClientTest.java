@@ -262,5 +262,27 @@ class ActuatorClientTest {
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("SSRF Protection: URI fragments not permitted");
     }
+
+    @Test
+    void testGzipResponseDecompression() throws IOException {
+        String json = "{\"status\":\"UP\",\"details\":{\"diskSpace\":{\"status\":\"UP\"}}}";
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gzos = new java.util.zip.GZIPOutputStream(baos)) {
+            gzos.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        byte[] gzippedBytes = baos.toByteArray();
+
+        server.createContext("/actuator/compressed-health", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Content-Encoding", "gzip");
+            exchange.sendResponseHeaders(200, gzippedBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(gzippedBytes);
+            }
+        });
+
+        String result = client.fetchEndpoint("/actuator/compressed-health");
+        assertThat(result).isEqualTo(json);
+    }
 }
 

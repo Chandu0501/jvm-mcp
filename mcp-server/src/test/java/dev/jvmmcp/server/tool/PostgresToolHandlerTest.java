@@ -153,7 +153,7 @@ class PostgresToolHandlerTest {
     }
 
     static Stream<Object> invalidMinimumTableSizes() {
-        return Stream.of(-1, 1.5, new BigDecimal("0.01"), new BigDecimal("5.0000000000000000001"), "5", true, null,
+        return Stream.of(-1, 1.5, new BigDecimal("0.01"), new BigDecimal("5.0000000000000000001"), "not-a-number", true, null,
             8796093022208L, Long.MAX_VALUE, new BigInteger("9223372036854775808"),
             Double.NaN, Double.POSITIVE_INFINITY);
     }

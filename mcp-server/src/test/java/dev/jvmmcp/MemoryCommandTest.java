@@ -370,6 +370,22 @@ class MemoryCommandTest {
         assertThat(command).isNotNull();
     }
 
+    @Test
+    @DisplayName("detaches VirtualMachine when JMX connection fails")
+    void shouldDetachWhenJmxConnectFails() throws Exception {
+        long targetPid = 999999L;
+        StubVirtualMachine mockVm = new StubVirtualMachine(false);
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+            .thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = targetPid;
+
+        int exitCode = command.call();
+        assertThat(exitCode).isEqualTo(1);
+        org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
+    }
+
     private static String lineContaining(String output, String needle) {
         return output.lines()
             .filter(line -> line.contains(needle))

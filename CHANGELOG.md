@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated documentation to emphasize "Zero runtime framework overhead with self-contained packaging and zero target-application modifications" over generic "zero-dependency" claims.
 
 ### Fixed
+- **Null Map Key Serialization in `SimpleJson`** (#164): Serializes maps containing `null` keys as `"null": <value>` instead of throwing `NullPointerException`.
+- **PostgreSQL JDBC Security Hardening** (#160): Expanded JDBC URI validation in `PostgresSchemaReader` to block CVE-2022-21724 attack vectors and dangerous properties (`loggerFile`, `loggerLevel`, `allowEncodingChanges`, `socketFactoryArg`, `sslFactoryArg`).
+- **Resilient Numeric Parsing for LLM Tool Call Arguments** (#162): `ToolArgs.getLongArg()` and `getIntArg()` now parse string-formatted numbers returned by LLMs (e.g. `"12345"`).
+- **Descriptive Error Formatting for Missing Beans** (#112): `SpringBeansToolHandler.get_bean_detail` now returns `{ "isError": true, "content": [...] }` when the requested bean is not found instead of returning an empty or ambiguous payload.
+- **Actuator Command Usability & Security** (#165, #167, #115):
+  - Sanitized validation messages in `ActuatorAuth` to be generic and leak-proof.
+  - Added CLI option aliases `--actuator-user`, `--actuator-password`, `--actuator-token` to `ActuatorCommand`.
+  - Added loopback URL detection to eliminate false unencrypted HTTP warnings when querying local loopback addresses (`127.0.0.1`, `::1`).
+  - Added whitespace trimming for comma-separated metrics in `ActuatorCommand` and `ActuatorToolHandler`.
+- **McpTransport Executor Hygiene & Charset Handling** (#61): Wrapped executor termination in `finally` to prevent executor thread leaks on early I/O errors and ensured UTF-8 `PrintStream` wrapping.
+- **CLI VirtualMachine Detach Lifecycle** (#55): Protected `MemoryCommand` and `ThreadsCommand` with guaranteed `finally` detachment when JMX initialization fails.
+- **Actuator Transparent GZIP & Deflate Decompression** (#103): Supported transparent GZIP and Deflate streaming decompression in `ActuatorClient` with decompression bomb protection.
+- **BeansCommand Environment Variable Support** (#161): Supported `ACTUATOR_USER`, `ACTUATOR_PASSWORD`, `ACTUATOR_TOKEN` in `BeansCommand`.
+- **Universal Installer Fresh macOS PATH Persistence** (#62): `install.sh` now creates `~/.zshrc` or `~/.bashrc` when neither exists and provides clear diagnostics on 404 release downloads.
+- **End-to-End Spring Boot & MCP Integration Testing**: Added `SpringBootMockE2EIntegrationTest` validating MCP handshake, tool listing, actuator health, metrics with GZIP decompression, and Spring beans inspection over JSON-RPC.
 - **Parseable Deadlock Report in `get_thread_diagnostics`**: the second content block is now the deadlock report's JSON alone. It used to start with `Deadlock Report: `, so a client parsing each block as JSON failed on it.
 - **Thread Summary with No Thread IDs**: `ThreadMXBeanClient.getThreadSummary` treats a `null` from `getAllThreadIds()` as no threads and returns zero state counts instead of throwing `NullPointerException`.
 - **Heap Usage Ratio in `MemoryPressure`**: `heapUsageRatio` now holds the heap's own used/max ratio. It used to carry the larger of the heap and Metaspace/Class Space ratios, so a full Metaspace over a near-idle heap read as 96% heap usage. The pressure level and recommendation still follow the fuller of the two.

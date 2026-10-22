@@ -57,11 +57,15 @@ public class ThreadsCommand implements Callable<Integer> {
                 return 1;
             }
 
-            try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent() 
-                    ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
-                    : JmxConnectionManager.connectLocal()) {
+            com.sun.tools.attach.VirtualMachine vm = attachResult.virtualMachine().orElse(null);
+            boolean[] jmxManagerOwnsVm = {false};
+            try {
+                try (JmxConnectionManager jmxManager = vm != null 
+                        ? JmxConnectionManager.connect(vm, pid) 
+                        : JmxConnectionManager.connectLocal()) {
+                    jmxManagerOwnsVm[0] = true;
 
-                ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
+                    ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
 
                 if (deadlocksOnly) {
                     printDeadlocks(client);
@@ -82,6 +86,14 @@ public class ThreadsCommand implements Callable<Integer> {
                 printDeadlocks(client);
                 return 0;
             }
+        } finally {
+            if (vm != null && !jmxManagerOwnsVm[0]) {
+                try {
+                    attachService.detach(vm);
+                } catch (Exception ignored) {
+                }
+            }
+        }
 
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Error querying thread metrics: " + e.getMessage());
