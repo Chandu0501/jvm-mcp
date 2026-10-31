@@ -3,10 +3,19 @@ package dev.jvmmcp.server.tool;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.jvmmcp.core.util.SimpleJson;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ToolArgsTest {
 
@@ -246,6 +255,165 @@ class ToolArgsTest {
     @DisplayName("getBooleanArg rejects unsupported value types")
     void testGetBooleanArgInvalidType() {
         assertThatThrownBy(() -> ToolArgs.getBooleanArg(Map.of("enabled", 1), "enabled", false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Argument 'enabled' must be a boolean");
+    }
+
+    @ParameterizedTest
+    @MethodSource("boundedIntegerCases")
+    void clampsNumbersBeforeNarrowing(Number value, int expected) {
+        assertThat(ToolArgs.getIntArg(Map.of("limit", value), "limit", 10, -100, 100))
+                .isEqualTo(expected);
+    }
+
+    static Stream<Arguments> boundedIntegerCases() {
+        return Stream.of(
+                Arguments.of(4294967297L, 100),
+                Arguments.of(-4294967297L, -100),
+                Arguments.of(Long.MAX_VALUE, 100),
+                Arguments.of(Long.MIN_VALUE, -100),
+                Arguments.of(new BigInteger("18446744073709551617"), 100),
+                Arguments.of(new BigInteger("-18446744073709551617"), -100),
+                Arguments.of(new BigDecimal("1E+2147483647"), 100),
+                Arguments.of(new BigDecimal("-1E+2147483647"), -100),
+                Arguments.of(new BigDecimal("1E-2147483647"), 0),
+                Arguments.of(new BigDecimal("99.999999999999999999"), 99),
+                Arguments.of(Double.MAX_VALUE, 100),
+                Arguments.of(-Double.MAX_VALUE, -100),
+                Arguments.of(99.9, 99),
+                Arguments.of(-99.9, -99),
+                Arguments.of(-100, -100),
+                Arguments.of(100, 100));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "2147483648, 2147483647",
+        "-2147483649, -2147483648",
+        "2147483647, 2147483647",
+        "-2147483648, -2147483648"
+    })
+    void clampsAtIntegerTypeBoundaries(long value, int expected) {
+        assertThat(
+                        ToolArgs.getIntArg(
+                                Map.of("limit", value),
+                                "limit",
+                                0,
+                                Integer.MIN_VALUE,
+                                Integer.MAX_VALUE))
+                .isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @MethodSource("nonFiniteNumbers")
+    void rejectsNonFiniteIntegerArguments(Number value) {
+        assertThatThrownBy(() -> ToolArgs.getIntArg(Map.of("limit", value), "limit", 10, 1, 100))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Argument 'limit'");
+    }
+
+    static Stream<Number> nonFiniteNumbers() {
+        return Stream.of(
+                Double.NaN,
+                Double.POSITIVE_INFINITY,
+                Double.NEGATIVE_INFINITY,
+                Float.NaN,
+                Float.POSITIVE_INFINITY,
+                Float.NEGATIVE_INFINITY);
+    }
+
+    @ParameterizedTest
+    @MethodSource("exactLongCases")
+    void acceptsExactlyRepresentableLongs(Number value, long expected) {
+        assertThat(ToolArgs.getLongArg(Map.of("pid", value), "pid", true)).isEqualTo(expected);
+    }
+
+    static Stream<Arguments> exactLongCases() {
+        return Stream.of(
+                Arguments.of((byte) 7, 7L),
+                Arguments.of((short) 8, 8L),
+                Arguments.of(99.0, 99L),
+                Arguments.of(99.0f, 99L),
+                Arguments.of(-0.0, 0L),
+                Arguments.of(Long.MIN_VALUE, Long.MIN_VALUE),
+                Arguments.of(Long.MAX_VALUE, Long.MAX_VALUE),
+                Arguments.of(-0x1.0p63, Long.MIN_VALUE),
+                Arguments.of(-0x1.0p63f, Long.MIN_VALUE),
+                Arguments.of(Math.nextDown(0x1.0p63), 9223372036854774784L),
+                Arguments.of(BigInteger.valueOf(Long.MIN_VALUE), Long.MIN_VALUE),
+                Arguments.of(BigInteger.valueOf(Long.MAX_VALUE), Long.MAX_VALUE),
+                Arguments.of(new BigDecimal("9223372036854775807.0"), Long.MAX_VALUE),
+                Arguments.of(new BigDecimal("-9223372036854775808.0"), Long.MIN_VALUE),
+                Arguments.of(new BigDecimal("99.00"), 99L));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidLongNumbers")
+    void rejectsFractionalAndOutOfRangeLongNumbers(Number value) {
+        assertThatThrownBy(() -> ToolArgs.getLongArg(Map.of("pid", value), "pid", true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Argument 'pid'");
+    }
+
+    static Stream<Number> invalidLongNumbers() {
+        return Stream.concat(
+                nonFiniteNumbers(),
+                Stream.of(
+                        1234.99,
+                        -1234.99,
+                        1.25f,
+                        -1.25f,
+                        Double.MIN_VALUE,
+                        0x1.0p63,
+                        Math.nextDown(-0x1.0p63),
+                        Double.MAX_VALUE,
+                        Float.MAX_VALUE,
+                        BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE),
+                        BigInteger.valueOf(Long.MIN_VALUE).subtract(BigInteger.ONE),
+                        new BigDecimal("9223372036854775807.0000000001"),
+                        new BigDecimal("-9223372036854775808.0000000001"),
+                        new BigDecimal("1E+2147483647"),
+                        new BigDecimal("-1E+2147483647"),
+                        new BigDecimal("1E-2147483647")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1234.99", "9223372036854775808", "1e400"})
+    void rejectsInvalidLongsFromJson(String number) {
+        Map<String, Object> args = SimpleJson.parseObject("{\"pid\":" + number + "}");
+        assertThatThrownBy(() -> ToolArgs.getLongArg(args, "pid", true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Argument 'pid'");
+    }
+
+    @Test
+    void clampsLargeIntegerFromJson() {
+        Map<String, Object> args = SimpleJson.parseObject("{\"limit\":4294967297}");
+        assertThat(ToolArgs.getIntArg(args, "limit", 20, 1, 100)).isEqualTo(100);
+    }
+
+    @Test
+    void preservesTrimmedNumericStringParsing() {
+        assertThat(ToolArgs.getLongArg(Map.of("pid", " 9223372036854775807 "), "pid", true))
+                .isEqualTo(Long.MAX_VALUE);
+        assertThat(ToolArgs.getLongArg(Map.of("pid", " -9223372036854775808 "), "pid", true))
+                .isEqualTo(Long.MIN_VALUE);
+        assertThat(ToolArgs.getIntArg(Map.of("limit", " 99 "), "limit", 10, 1, 100)).isEqualTo(99);
+        assertThatThrownBy(() -> ToolArgs.getLongArg(Map.of("pid", "99.0"), "pid", true))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"' TrUe ', true", "' FaLsE ', false"})
+    void acceptsTrimmedCaseInsensitiveBooleanStrings(String value, boolean expected) {
+        assertThat(ToolArgs.getBooleanArg(Map.of("enabled", value), "enabled", !expected))
+                .isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"yes", "1", "0", "falsee", "tru", "", "  ", "null", "false true"})
+    void rejectsInvalidBooleanStrings(String value) {
+        assertThatThrownBy(() -> ToolArgs.getBooleanArg(Map.of("enabled", value), "enabled", true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Argument 'enabled' must be a boolean");
     }

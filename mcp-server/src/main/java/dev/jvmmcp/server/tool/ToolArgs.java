@@ -1,5 +1,7 @@
 package dev.jvmmcp.server.tool;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Map;
 
 /** Type-safe argument extraction utilities for MCP tool invocations. */
@@ -48,7 +50,12 @@ public final class ToolArgs {
         }
         Object val = args.get(key);
         if (val instanceof Number n) {
-            return n.longValue();
+            try {
+                return decimalValue(n).longValueExact();
+            } catch (ArithmeticException | NumberFormatException e) {
+                throw new IllegalArgumentException(
+                        "Argument '" + key + "' must be a whole number in the long range", e);
+            }
         }
         if (val instanceof String s && !s.isBlank()) {
             try {
@@ -76,12 +83,17 @@ public final class ToolArgs {
             return defaultValue;
         }
         Object val = args.get(key);
-        int parsed;
+        BigDecimal parsed;
         if (val instanceof Number n) {
-            parsed = n.intValue();
+            try {
+                parsed = decimalValue(n);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(
+                        "Argument '" + key + "' must be a finite number", e);
+            }
         } else if (val instanceof String s && !s.isBlank()) {
             try {
-                parsed = Integer.parseInt(s.trim());
+                parsed = BigDecimal.valueOf(Integer.parseInt(s.trim()));
             } catch (NumberFormatException e) {
                 throw new IllegalArgumentException(
                         "Argument '" + key + "' must be a number, got: " + s);
@@ -89,10 +101,10 @@ public final class ToolArgs {
         } else {
             throw new IllegalArgumentException("Argument '" + key + "' must be a number");
         }
-        if (parsed < min) {
+        if (parsed.compareTo(BigDecimal.valueOf(min)) < 0) {
             return min;
         }
-        return Math.min(parsed, max);
+        return parsed.min(BigDecimal.valueOf(max)).intValue();
     }
 
     public static boolean getBooleanArg(
@@ -105,8 +117,25 @@ public final class ToolArgs {
             return b;
         }
         if (val instanceof String s) {
-            return Boolean.parseBoolean(s.trim());
+            String normalized = s.trim();
+            if ("true".equalsIgnoreCase(normalized)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(normalized)) {
+                return false;
+            }
         }
         throw new IllegalArgumentException("Argument '" + key + "' must be a boolean");
+    }
+
+    private static BigDecimal decimalValue(Number number) {
+        return switch (number) {
+            case BigDecimal decimal -> decimal;
+            case BigInteger integer -> new BigDecimal(integer);
+            // Preserve the exact binary value, including the representable Long.MIN_VALUE boundary.
+            case Double value -> new BigDecimal(value);
+            case Float value -> new BigDecimal(value.doubleValue());
+            default -> new BigDecimal(number.toString());
+        };
     }
 }
