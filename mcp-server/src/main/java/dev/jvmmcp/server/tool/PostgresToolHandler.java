@@ -3,6 +3,9 @@ package dev.jvmmcp.server.tool;
 import dev.jvmmcp.core.pg.PostgresSchemaReader;
 import dev.jvmmcp.core.util.SimpleJson;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +55,16 @@ public class PostgresToolHandler implements ToolHandler {
                                         "type", "object",
                                         "properties",
                                                 Map.of(
+                                                        "user",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database username (default: PGUSER, then PG_USER)"),
+                                                        "password",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database password (default: PGPASSWORD, then PG_PASSWORD)"),
                                                         "url",
                                                                 Map.of(
                                                                         "type",
@@ -74,6 +87,16 @@ public class PostgresToolHandler implements ToolHandler {
                                         "type", "object",
                                         "properties",
                                                 Map.of(
+                                                        "user",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database username (default: PGUSER, then PG_USER)"),
+                                                        "password",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database password (default: PGPASSWORD, then PG_PASSWORD)"),
                                                         "url",
                                                                 Map.of(
                                                                         "type",
@@ -105,6 +128,16 @@ public class PostgresToolHandler implements ToolHandler {
                                         "type", "object",
                                         "properties",
                                                 Map.of(
+                                                        "user",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database username (default: PGUSER, then PG_USER)"),
+                                                        "password",
+                                                                Map.of(
+                                                                        "type", "string",
+                                                                        "description",
+                                                                                "Database password (default: PGPASSWORD, then PG_PASSWORD)"),
                                                         "url",
                                                                 Map.of(
                                                                         "type",
@@ -132,8 +165,11 @@ public class PostgresToolHandler implements ToolHandler {
     public Map<String, Object> execute(String toolName, Map<String, Object> args) throws Exception {
         String url = ToolArgs.getStringArg(args, "url", true);
         PostgresSchemaReader.validateJdbcUrl(url);
-        String user = envProvider.apply("PG_USER");
-        String password = envProvider.apply("PG_PASSWORD");
+        url = withDefaultDatabase(url);
+        String userArg = ToolArgs.getStringArg(args, "user", false);
+        String passwordArg = ToolArgs.getStringArg(args, "password", false);
+        String user = userArg != null ? userArg : firstEnv("PGUSER", "PG_USER");
+        String password = passwordArg != null ? passwordArg : firstEnv("PGPASSWORD", "PG_PASSWORD");
 
         List<Map<String, Object>> content = new ArrayList<>();
         try (PostgresSchemaReader reader = readerFactory.create(url, user, password)) {
@@ -196,5 +232,30 @@ public class PostgresToolHandler implements ToolHandler {
         }
 
         return Map.of("content", content);
+    }
+
+    private String firstEnv(String canonical, String legacy) {
+        String value = envProvider.apply(canonical);
+        return value != null ? value : envProvider.apply(legacy);
+    }
+
+    private String withDefaultDatabase(String url) {
+        URI uri = URI.create(url.substring("jdbc:".length()));
+        String path = uri.getRawPath();
+        if (path != null && !path.isEmpty() && !"/".equals(path)) {
+            return url;
+        }
+        String database = firstEnv("PGDATABASE", "PG_DATABASE");
+        if (database == null || database.isEmpty()) {
+            return url;
+        }
+        String encodedDatabase =
+                URLEncoder.encode(database, StandardCharsets.UTF_8).replace("+", "%20");
+        return "jdbc:postgresql://"
+                + uri.getRawAuthority()
+                + "/"
+                + encodedDatabase
+                + (uri.getRawQuery() != null ? "?" + uri.getRawQuery() : "")
+                + (uri.getRawFragment() != null ? "#" + uri.getRawFragment() : "");
     }
 }

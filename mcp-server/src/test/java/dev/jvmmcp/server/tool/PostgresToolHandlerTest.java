@@ -21,8 +21,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -40,6 +42,184 @@ class PostgresToolHandlerTest {
                 .containsExactlyInAnyOrder(
                         "inspect_pg_schema", "find_missing_indexes", "find_slow_queries");
         assertThat(handler.toolDefinitions()).hasSize(3);
+    }
+
+    @ParameterizedTest
+    @MethodSource("credentialCases")
+    void resolvesCredentialsInCanonicalOrder(
+            String toolName,
+            Map<String, Object> explicit,
+            Map<String, String> environment,
+            String expectedUser,
+            String expectedPassword)
+            throws Exception {
+        PostgresToolHandler handler =
+                new PostgresToolHandler(
+                        (url, user, password) -> {
+                            assertThat(user).isEqualTo(expectedUser);
+                            assertThat(password).isEqualTo(expectedPassword);
+                            return mockReader;
+                        },
+                        environment::get);
+        Map<String, Object> args = new HashMap<>(explicit);
+        args.put("url", "jdbc:postgresql://localhost:5432/mydb");
+
+        handler.execute(toolName, args);
+
+        verify(mockReader).close();
+    }
+
+    static Stream<Arguments> credentialCases() {
+        Map<String, String> conflicting =
+                Map.of(
+                        "PGUSER", "canonical_user",
+                        "PG_USER", "legacy_user",
+                        "PGPASSWORD", "canonical_password",
+                        "PG_PASSWORD", "legacy_password");
+        return Stream.of(
+                        Arguments.of(Map.of(), Map.of(), null, null),
+                        Arguments.of(
+                                Map.of(),
+                                Map.of(
+                                        "PGUSER",
+                                        "canonical_user",
+                                        "PGPASSWORD",
+                                        "canonical_password"),
+                                "canonical_user",
+                                "canonical_password"),
+                        Arguments.of(
+                                Map.of(),
+                                Map.of("PG_USER", "legacy_user", "PG_PASSWORD", "legacy_password"),
+                                "legacy_user",
+                                "legacy_password"),
+                        Arguments.of(Map.of(), conflicting, "canonical_user", "canonical_password"),
+                        Arguments.of(
+                                Map.of(),
+                                Map.of(
+                                        "PGUSER",
+                                        "canonical_user",
+                                        "PG_PASSWORD",
+                                        "legacy_password"),
+                                "canonical_user",
+                                "legacy_password"),
+                        Arguments.of(
+                                Map.of("user", "argument_user", "password", "argument_password"),
+                                conflicting,
+                                "argument_user",
+                                "argument_password"),
+                        Arguments.of(
+                                Map.of("user", "argument_user"),
+                                conflicting,
+                                "argument_user",
+                                "canonical_password"),
+                        Arguments.of(
+                                Map.of("password", "argument_password"),
+                                conflicting,
+                                "canonical_user",
+                                "argument_password"),
+                        Arguments.of(Map.of("user", "", "password", ""), conflicting, "", ""),
+                        Arguments.of(
+                                Map.of(),
+                                Map.of(
+                                        "PGUSER",
+                                        "",
+                                        "PG_USER",
+                                        "legacy_user",
+                                        "PGPASSWORD",
+                                        "",
+                                        "PG_PASSWORD",
+                                        "legacy_password"),
+                                "",
+                                ""))
+                .flatMap(
+                        testCase ->
+                                Stream.of(
+                                                "inspect_pg_schema",
+                                                "find_missing_indexes",
+                                                "find_slow_queries")
+                                        .map(
+                                                tool -> {
+                                                    Object[] values = testCase.get();
+                                                    return Arguments.of(
+                                                            tool, values[0], values[1], values[2],
+                                                            values[3]);
+                                                }));
+    }
+
+    @ParameterizedTest
+    @MethodSource("databaseCases")
+    void usesDatabaseEnvironmentOnlyWhenUrlOmitsDatabase(
+            String inputUrl, Map<String, String> environment, String expectedUrl) throws Exception {
+        PostgresToolHandler handler =
+                new PostgresToolHandler(
+                        (url, user, password) -> {
+                            assertThat(url).isEqualTo(expectedUrl);
+                            return mockReader;
+                        },
+                        environment::get);
+
+        handler.execute("inspect_pg_schema", Map.of("url", inputUrl));
+
+        verify(mockReader).close();
+    }
+
+    static Stream<Arguments> databaseCases() {
+        String base = "jdbc:postgresql://localhost:5432";
+        Map<String, String> conflicting =
+                Map.of("PGDATABASE", "canonical_db", "PG_DATABASE", "legacy_db");
+        return Stream.of(
+                Arguments.of(
+                        base + "/explicit_db?sslmode=require",
+                        conflicting,
+                        base + "/explicit_db?sslmode=require"),
+                Arguments.of(base + "/", conflicting, base + "/canonical_db"),
+                Arguments.of(base, Map.of("PGDATABASE", "canonical_db"), base + "/canonical_db"),
+                Arguments.of(base + "/", Map.of("PG_DATABASE", "legacy_db"), base + "/legacy_db"),
+                Arguments.of(base + "/", Map.of(), base + "/"),
+                Arguments.of(base, Map.of(), base),
+                Arguments.of(
+                        base + "/",
+                        Map.of("PGDATABASE", "", "PG_DATABASE", "legacy_db"),
+                        base + "/"),
+                Arguments.of(
+                        base + "/?applicationName=a%20b",
+                        Map.of("PGDATABASE", "team db/?#%+é"),
+                        base + "/team%20db%2F%3F%23%25%2B%C3%A9?applicationName=a%20b"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"user", "password"})
+    void rejectsNonStringCredentialsBeforeCreatingReader(String argument) {
+        PostgresToolHandler handler =
+                new PostgresToolHandler((url, user, pass) -> mockReader, name -> null);
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "inspect_pg_schema",
+                                        Map.of(
+                                                "url",
+                                                "jdbc:postgresql://localhost/mydb",
+                                                argument,
+                                                42)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Argument '" + argument + "' must be a string");
+        verifyNoInteractions(mockReader);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void credentialArgumentsAreOptionalInEveryToolSchema() {
+        PostgresToolHandler handler = new PostgresToolHandler((url, user, pass) -> mockReader);
+        for (Map<String, Object> definition : handler.toolDefinitions()) {
+            Map<String, Object> schema = (Map<String, Object>) definition.get("inputSchema");
+            Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+            assertThat((Map<String, Object>) properties.get("user"))
+                    .containsEntry("type", "string");
+            assertThat((Map<String, Object>) properties.get("password"))
+                    .containsEntry("type", "string");
+            assertThat((List<String>) schema.get("required")).containsExactly("url");
+        }
     }
 
     @Test
