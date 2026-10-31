@@ -35,7 +35,7 @@ public class ThreadsCommand implements Callable<Integer> {
 
     @Option(
             names = {"--json"},
-            description = "Output thread summary in JSON format")
+            description = "Output the selected thread report in JSON format")
     boolean json;
 
     @Option(
@@ -75,6 +75,7 @@ public class ThreadsCommand implements Callable<Integer> {
 
             com.sun.tools.attach.VirtualMachine vm = attachResult.virtualMachine().orElse(null);
             boolean[] jmxManagerOwnsVm = {false};
+
             try {
                 try (JmxConnectionManager jmxManager =
                         vm != null
@@ -86,6 +87,41 @@ public class ThreadsCommand implements Callable<Integer> {
                     String javaSpecificationVersion =
                             includeVirtualThreads ? getJavaSpecificationVersion(vm) : null;
 
+                    if (flags.deadlocksOnly) {
+                        if (json) {
+                            System.out.println(SimpleJson.toJson(client.detectDeadlocks()));
+                        } else {
+                            printDeadlocks(client);
+                        }
+                        return 0;
+                    }
+
+                    if (flags.topCpu) {
+                        if (json) {
+                            System.out.println(SimpleJson.toJson(client.getTopCpuThreads(pid, 5)));
+                        } else {
+                            printTopCpuThreads(client);
+                        }
+                        return 0;
+                    }
+
+                    if (threshold > 0 || flags.blockedOnly) {
+                        if (json) {
+                            System.out.println(
+                                    SimpleJson.toJson(client.findBlockedThreads(threshold)));
+                            return 0;
+                        }
+                        printBlockedThreads(client);
+                    }
+
+                    if (flags.dump) {
+                        if (json) {
+                            System.out.println(SimpleJson.toJson(client.getThreadDump(pid)));
+                            return 0;
+                        }
+                        printThreadDump(client);
+                    }
+
                     if (json) {
                         ThreadSummary summary =
                                 includeVirtualThreads
@@ -96,24 +132,6 @@ public class ThreadsCommand implements Callable<Integer> {
                         return 0;
                     }
 
-                    if (flags.deadlocksOnly) {
-                        printDeadlocks(client);
-                        return 0;
-                    }
-
-                    if (flags.topCpu) {
-                        printTopCpuThreads(client);
-                        return 0;
-                    }
-
-                    if (threshold > 0 || flags.blockedOnly) {
-                        printBlockedThreads(client);
-                    }
-
-                    if (flags.dump) {
-                        printThreadDump(client);
-                    }
-
                     if (!flags.blockedOnly
                             && !flags.deadlocksOnly
                             && !flags.dump
@@ -121,9 +139,9 @@ public class ThreadsCommand implements Callable<Integer> {
                         printThreadSummary(client, javaSpecificationVersion);
                         printDeadlocks(client);
                     }
+
                     return 0;
                 }
-
             } finally {
                 if (vm != null && !jmxManagerOwnsVm[0]) {
                     try {
@@ -132,7 +150,6 @@ public class ThreadsCommand implements Callable<Integer> {
                     }
                 }
             }
-
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Error querying thread metrics: " + e.getMessage());
             return 1;

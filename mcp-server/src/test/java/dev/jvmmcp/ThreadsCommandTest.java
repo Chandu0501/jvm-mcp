@@ -249,12 +249,9 @@ class ThreadsCommandTest {
             assertThat(output).contains("at Class.method(Class.java:10)");
             assertThat(output).contains("waiting on Lock-B held by Owner (ID 3)");
 
-            // Owner present: lock owner name and ID must stay intact.
             String ownedLockBlock = dumpBlock(output, "\"Worker2\" #3 [WAITING]");
             assertThat(ownedLockBlock).contains("waiting on Lock-B held by Owner (ID 3)");
 
-            // Owner absent but lock name present (WAITING/parked condition threads):
-            // the lock must be reported without materialising "null" owner details.
             String parkedBlock = dumpBlock(output, "\"Parked\" #4 [WAITING]");
             assertThat(parkedBlock).contains("waiting on");
             assertThat(parkedBlock).contains(parkedLock);
@@ -262,7 +259,6 @@ class ThreadsCommandTest {
             assertThat(parkedBlock).doesNotContain("ID null");
             assertThat(parkedBlock).doesNotContain("null");
 
-            // No lock at all: the waiting line must be omitted entirely.
             String noLockBlock = dumpBlock(output, "\"Worker\" #2 [WAITING]");
             assertThat(noLockBlock).contains("at Class.method(Class.java:10)");
             assertThat(noLockBlock).doesNotContain("waiting on");
@@ -440,7 +436,6 @@ class ThreadsCommandTest {
                                         new ThreadStackFrame(
                                                 "ClassB", "methodB", "ClassB.java", 20, false))));
 
-        // Use lenient stubbing for setup stubbings that are not directly used
         Mockito.lenient()
                 .when(mockClient.findBlockedThreads(300))
                 .thenReturn(
@@ -524,7 +519,7 @@ class ThreadsCommandTest {
 
         ThreadsCommand command = new ThreadsCommand(mockAttachService);
         command.pid = targetPid;
-        command.threadFlags = new ThreadFlags(); // No flags set
+        command.threadFlags = new ThreadFlags();
 
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalErr = System.err;
@@ -628,10 +623,6 @@ class ThreadsCommandTest {
         }
     }
 
-    /**
-     * Extracts the printed dump block of a single thread, from its {@code "name" #id [STATE]}
-     * header up to the blank line that terminates the block.
-     */
     private static String dumpBlock(String output, String threadHeader) {
         int start = output.indexOf(threadHeader);
         assertThat(start).as("thread header '%s' present in dump", threadHeader).isNotNegative();
@@ -723,5 +714,165 @@ class ThreadsCommandTest {
         } finally {
             System.setOut(originalOut);
         }
+    }
+
+    @Test
+    void shouldOutputDeadlockReportAsJsonWithDeadlocksFlag() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        when(mockClient.detectDeadlocks()).thenReturn(DeadlockReport.none());
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threadFlags.deadlocksOnly = true;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.Map.class);
+        assertThat(output).contains("\"status\":\"NONE\"");
+        Mockito.verify(mockClient).detectDeadlocks();
+    }
+
+    @Test
+    void shouldOutputThreadDumpAsJsonWithDumpFlag() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        dev.jvmmcp.core.model.ThreadDetail thread =
+                new dev.jvmmcp.core.model.ThreadDetail(
+                        7L,
+                        "dump-worker",
+                        "WAITING",
+                        null,
+                        null,
+                        null,
+                        0L,
+                        0L,
+                        0L,
+                        0L,
+                        false,
+                        false,
+                        List.of());
+
+        ThreadDump dump =
+                new ThreadDump(
+                        targetPid,
+                        java.time.Instant.parse("2026-10-31T00:00:00Z"),
+                        1,
+                        List.of(thread));
+
+        when(mockClient.getThreadDump(targetPid)).thenReturn(dump);
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threadFlags.dump = true;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.Map.class);
+        assertThat(output).contains("\"totalCount\":1").contains("\"threadName\":\"dump-worker\"");
+        Mockito.verify(mockClient).getThreadDump(targetPid);
+    }
+
+    @Test
+    void shouldOutputTopCpuThreadsAsJsonWithTopCpuFlag() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        dev.jvmmcp.core.model.ThreadDetail thread =
+                new dev.jvmmcp.core.model.ThreadDetail(
+                        7L,
+                        "cpu-worker",
+                        "RUNNABLE",
+                        null,
+                        null,
+                        null,
+                        0L,
+                        0L,
+                        0L,
+                        0L,
+                        false,
+                        false,
+                        List.of(),
+                        250_000_000L,
+                        200_000_000L);
+
+        when(mockClient.getTopCpuThreads(targetPid, 5)).thenReturn(List.of(thread));
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threadFlags.topCpu = true;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.List.class);
+        assertThat(output)
+                .contains("\"threadName\":\"cpu-worker\"")
+                .contains("\"cpuTimeNs\":250000000");
+        Mockito.verify(mockClient).getTopCpuThreads(targetPid, 5);
+    }
+
+    @Test
+    void shouldOutputBlockedThreadsAsJsonWithBlockedFlag() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        BlockedThreadDetail blocked =
+                new BlockedThreadDetail(
+                        4L, "blocked-worker", 250L, 2L, "Lock-A", 5L, "owner", List.of());
+
+        when(mockClient.findBlockedThreads(0)).thenReturn(List.of(blocked));
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threadFlags.blockedOnly = true;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.List.class);
+        assertThat(output)
+                .contains("\"threadName\":\"blocked-worker\"")
+                .contains("\"lockName\":\"Lock-A\"");
+        Mockito.verify(mockClient).findBlockedThreads(0);
+    }
+
+    @Test
+    void shouldOutputBlockedThreadsAsJsonWithThreshold() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        BlockedThreadDetail blocked =
+                new BlockedThreadDetail(
+                        4L, "threshold-worker", 500L, 2L, "Lock-B", 6L, "owner", List.of());
+
+        when(mockClient.findBlockedThreads(300)).thenReturn(List.of(blocked));
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threshold = 300;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.List.class);
+        assertThat(output).contains("\"threadName\":\"threshold-worker\"");
+        Mockito.verify(mockClient).findBlockedThreads(300);
+    }
+
+    private ThreadsCommand newJsonCommand(long targetPid, ThreadMXBeanClient mockClient) {
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+                .thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+
+        ThreadsCommand command = Mockito.spy(new ThreadsCommand(mockAttachService));
+        command.pid = targetPid;
+        command.json = true;
+
+        doReturn(mockClient).when(command).createThreadMXBeanClient(any());
+
+        return command;
+    }
+
+    private String executeJsonCommand(ThreadsCommand command) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+
+        try {
+            System.setOut(new PrintStream(out));
+            assertThat(command.call()).isZero();
+        } finally {
+            System.setOut(originalOut);
+        }
+
+        return out.toString().trim();
     }
 }
