@@ -278,6 +278,10 @@ jvm-mcp actuator --url "http://localhost:8080" metrics
 jvm-mcp serve [--attach <pid>] [--actuator <url>]
 ```
 
+When Spring bean discovery is unavailable, `jvm-mcp beans` exits with code 1 and
+writes the failure reason and remediation advice to stderr, including with `--json`.
+Successful discovery with no matching beans still exits with code 0.
+
 ---
 
 ## Exposed MCP Tools

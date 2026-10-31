@@ -169,9 +169,13 @@ public class BeansCommand implements Callable<Integer> {
 
         if (report != null
                 && report.discoverySource() != null
-                && report.discoverySource().startsWith("ACTUATOR_UNREACHABLE")) {
+                && (report.discoverySource().startsWith("NOT_AVAILABLE")
+                        || report.discoverySource().startsWith("ACTUATOR_UNREACHABLE"))) {
             System.err.println(
-                    "[jvm-mcp] Error: Actuator endpoint was unreachable: " + actuatorUrl);
+                    "[jvm-mcp] Error: Unable to inspect Spring beans: " + report.discoverySource());
+            System.err.println(
+                    "[jvm-mcp] Hint: Configure the Actuator beans endpoint through your approved management configuration "
+                            + "or enable Spring JMX with spring.jmx.enabled=true.");
             return 1;
         }
 

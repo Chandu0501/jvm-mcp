@@ -18,6 +18,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -183,22 +186,39 @@ class BeansCommandTest {
         }
     }
 
-    @Test
-    @DisplayName("beans command with filter matching no beans should report empty result")
-    void shouldHandleEmptyBeansMatch() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("beans command with filter matching no beans should report empty success")
+    void shouldHandleEmptyBeansMatch(boolean json) {
+        BeansCommand command = new BeansCommand(mockAttachService, key -> null);
+        command.actuatorUrl = serverBaseUrl;
+        command.filter = "*NonExistent*";
+        command.json = json;
+
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
         try {
             System.setOut(new PrintStream(out));
-            CommandLine cmd = new CommandLine(new JvmMcp());
-            int exitCode =
-                    cmd.execute("beans", "--actuator", serverBaseUrl, "--filter", "*NonExistent*");
+            System.setErr(new PrintStream(err));
 
-            assertThat(exitCode).isZero();
-            String output = out.toString();
-            assertThat(output).contains("No beans matched the specified criteria");
+            assertThat(command.call()).isZero();
+            assertThat(err.toString()).isEmpty();
+            if (json) {
+                Map<String, Object> report =
+                        dev.jvmmcp.core.util.SimpleJson.parseObject(out.toString());
+                assertThat(((Number) report.get("totalBeans")).intValue()).isZero();
+                assertThat(report.get("discoverySource").toString()).startsWith("ACTUATOR_HTTP");
+            } else {
+                assertThat(out.toString())
+                        .contains(
+                                "Total Beans Matched: 0",
+                                "No beans matched the specified criteria");
+            }
         } finally {
             System.setOut(originalOut);
+            System.setErr(originalErr);
         }
     }
 
@@ -324,26 +344,69 @@ class BeansCommandTest {
         }
     }
 
-    @Test
-    @DisplayName("beans command on attached PID should execute local inspection")
-    void shouldInspectAttachedProcessBeans() {
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    @DisplayName("beans command should fail when no discovery source is available")
+    void shouldFailWhenBeansDiscoveryIsUnavailable(boolean json, boolean detail) {
         long targetPid = 100L;
         when(mockAttachService.attach(String.valueOf(targetPid)))
                 .thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        BeansCommand command = new BeansCommand(mockAttachService);
+        BeansCommand command = new BeansCommand(mockAttachService, key -> null);
         command.pid = targetPid;
+        command.json = json;
+        command.detailBeanName = detail ? "orderService" : null;
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
         try {
             System.setOut(new PrintStream(out));
-            Integer exitCode = command.call();
+            System.setErr(new PrintStream(err));
 
-            assertThat(exitCode).isZero();
-            assertThat(out.toString()).contains("SPRING BEANS INSPECTION");
+            assertThat(command.call()).isEqualTo(1);
+            assertThat(out.toString()).isEmpty();
+            assertThat(err.toString())
+                    .contains(
+                            "Unable to inspect Spring beans",
+                            "NOT_AVAILABLE",
+                            "JMX MBean not registered")
+                    .contains("Hint:", "Actuator", "spring.jmx.enabled=true")
+                    .doesNotContain("not found in active contexts");
         } finally {
             System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("beans command should explain unreachable Actuator failures")
+    void shouldExplainUnreachableActuatorFailure(boolean json) {
+        BeansCommand command = new BeansCommand(mockAttachService, key -> null);
+        command.actuatorUrl = serverBaseUrl + "/unavailable";
+        command.json = json;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        try {
+            System.setOut(new PrintStream(out));
+            System.setErr(new PrintStream(err));
+
+            assertThat(command.call()).isEqualTo(1);
+            assertThat(out.toString()).isEmpty();
+            assertThat(err.toString())
+                    .contains(
+                            "Unable to inspect Spring beans",
+                            "ACTUATOR_UNREACHABLE",
+                            command.actuatorUrl)
+                    .contains("Hint:", "Actuator", "spring.jmx.enabled=true");
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
         }
     }
 
