@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 import java.util.zip.GZIPInputStream;
@@ -98,17 +99,40 @@ final class HttpPayloadHandlers {
         if (bytes == null || bytes.length == 0) {
             return "";
         }
-        InputStream is = new ByteArrayInputStream(bytes);
-        if ("gzip".equalsIgnoreCase(encoding)) {
-            is = new GZIPInputStream(is);
-        } else if ("deflate".equalsIgnoreCase(encoding)) {
-            is = new InflaterInputStream(is);
+
+        String[] encodings =
+                encoding == null || encoding.isBlank() ? new String[0] : encoding.split(",", -1);
+
+        for (String value : encodings) {
+            String token = value.trim().toLowerCase(Locale.ROOT);
+
+            if (!token.equals("gzip")
+                    && !token.equals("x-gzip")
+                    && !token.equals("deflate")
+                    && !token.equals("identity")) {
+                throw new IOException("Unsupported Content-Encoding: " + token);
+            }
         }
+
+        InputStream is = new ByteArrayInputStream(bytes);
+
+        for (int i = encodings.length - 1; i >= 0; i--) {
+            String token = encodings[i].trim().toLowerCase(Locale.ROOT);
+
+            switch (token) {
+                case "gzip", "x-gzip" -> is = new GZIPInputStream(is);
+                case "deflate" -> is = new InflaterInputStream(is);
+                case "identity" -> {}
+                default -> throw new IOException("Unsupported Content-Encoding: " + token);
+            }
+        }
+
         try (InputStream in = is;
                 ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192];
             int read;
             long total = 0;
+
             while ((read = in.read(buf)) != -1) {
                 total += read;
                 if (total > maxUncompressedBytes) {
@@ -119,6 +143,7 @@ final class HttpPayloadHandlers {
                 }
                 baos.write(buf, 0, read);
             }
+
             return baos.toString(StandardCharsets.UTF_8);
         }
     }
