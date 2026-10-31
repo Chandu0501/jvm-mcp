@@ -262,8 +262,8 @@ jvm-mcp list
 # Inspect memory pools, GC pauses, and heap histogram
 jvm-mcp memory <pid>
 
-# Diagnose thread states and detect deadlock cycles (add --top-cpu for top CPU threads or --virtual for Loom)
-jvm-mcp threads <pid> [--top-cpu] [--virtual]
+# Diagnose thread states and detect deadlocks (add --top-cpu, --dump, --deadlocks, --blocked, --json, or --virtual for Loom)
+jvm-mcp threads <pid> [--top-cpu] [--dump] [--deadlocks] [--blocked] [--virtual] [--json]
 
 # Inspect Spring Boot ApplicationContext beans
 jvm-mcp beans <pid> --filter "*Service*"
@@ -277,6 +277,9 @@ jvm-mcp actuator --url "http://localhost:8080" metrics
 # Run MCP stdio server with optional defaults (making pid or url optional in tool schemas)
 jvm-mcp serve [--attach <pid>] [--actuator <url>]
 ```
+
+When using `--json` with `jvm-mcp threads`, the output serializes the specific
+diagnostic model selected by `--dump`, `--deadlocks`, `--top-cpu`, or `--blocked`.
 
 When Spring bean discovery is unavailable, `jvm-mcp beans` exits with code 1 and
 writes the failure reason and remediation advice to stderr, including with `--json`.
